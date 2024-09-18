@@ -1,0 +1,77 @@
+---
+- name: Setup web servers and load balancer
+  hosts: webservers
+  become: yes
+  tasks:
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Start and enable Apache
+      systemd:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Create a simple index.html
+      copy:
+        dest: /var/www/html/index.html
+        content: |
+          <html>
+          <head><title>Web Server</title></head>
+          <body><h1>Hello from {{ inventory_hostname }}</h1></body>
+          </html>
+
+- name: Setup Nginx load balancer
+  hosts: load_balancer
+  become: yes
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Configure Nginx for load balancing
+      copy:
+        dest: /etc/nginx/sites-available/load_balancer
+        content: |
+          upstream web_servers {
+              server web1:80;
+              server web2:80;
+          }
+
+          server {
+              listen 80;
+
+              location / {
+                  proxy_pass http://web_servers;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+
+    - name: Enable load balancer configuration
+      file:
+        src: /etc/nginx/sites-available/load_balancer
+        dest: /etc/nginx/sites-enabled/load_balancer
+        state: link
+
+    - name: Remove default Nginx config
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Test Nginx configuration
+      command: nginx -t
+
+    - name: Start and enable Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+ansible
